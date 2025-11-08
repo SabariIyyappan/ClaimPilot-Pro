@@ -1,0 +1,60 @@
+# Byte-compiled / built / virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Dependency managers
+Pipfile.lock
+poetry.lock
+
+# Editor directories
+.vscode/
+.idea/
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Data / indexes
+data/faiss.index
+data/*.npy
+data/*.npz
+data/*.bin
+
+# Environment
+.env
+backend/.env
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# Coverage / reports
+htmlcov/
+.coverage
+
+# IDE / build outputs
+out/
