@@ -1,12 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from .schemas import UploadRequest, SuggestRequest, SuggestResponse, ClaimRequest, ClaimResponse, Entity, CodeSuggestion
-from .ocr import extract_text_from_image_bytes, extract_text_from_pdf_bytes
-from .ner import extract_entities
-from .code_index import load_codes_from_csv, build_and_save_embeddings
-from .embeddings import embed_texts
-from .retrieval import FaissIndexWrapper
-from .llm_refine import refine
+from app.schemas import UploadRequest, SuggestRequest, SuggestResponse, ClaimRequest, ClaimResponse, Entity, CodeSuggestion
+from app.ocr import extract_text_from_image_bytes, extract_text_from_pdf_bytes
+from app.ner import extract_entities
+from app.code_index import load_codes_from_csv, build_and_save_embeddings
+from app.embeddings import embed_texts
+from app.retrieval import FaissIndexWrapper
+from app.llm_refine import refine
 import os
 import uuid
 

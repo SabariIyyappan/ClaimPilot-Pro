@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Git
+.git
+.gitignore
+
+# Data and artifacts
+data/
+*.db
+*.sqlite
+
+# Editor directories
+.vscode/
+.idea/
+
+# Tests
+tests/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
