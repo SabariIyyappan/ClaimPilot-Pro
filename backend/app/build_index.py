@@ -1,49 +1,43 @@
-"""Build embeddings and FAISS index from CSV datasets.
-
-Run: python backend/app/build_index.py --icd data/icd10.csv --cpt data/mock_cpt.csv --out data/
-"""
 import argparse
+from app.code_index import build_embeddings_only
 import numpy as np
 import faiss
-from code_index import load_codes_from_csv
-from embeddings import embed_texts
 import os
+import json
 
+def build_faiss_index(embeddings_path: str, out_path: str):
+    embs = np.load(embeddings_path)
+    d = embs.shape[1]
+    index = faiss.IndexFlatIP(d)      # cosine (embeddings already normalized)
+    index.add(embs)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    faiss.write_index(index, out_path)
+    return int(index.ntotal), d
 
-def normalize_embeddings(emb):
-    # normalize vectors for cosine similarity via inner product
-    norms = np.linalg.norm(emb, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    return emb / norms
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--icd_csv", required=True, help="CSV with columns Codes,Description")
+    ap.add_argument("--cpt_csv", required=True, help="CSV with columns Codes,Description")
+    ap.add_argument("--out_dir", default="data")
+    ap.add_argument("--embeddings_path", default="data/descriptions.npy")
+    ap.add_argument("--meta_path", default="data/meta.npy")
+    ap.add_argument("--faiss_path", default="data/faiss.index")
+    args = ap.parse_args()
+    print('starting building embeddings...')
+    # 1) build embeddings + meta first (safe to re-run)
+    n_icd, n_cpt = build_embeddings_only(
+        icd_csv=args.icd_csv,
+        cpt_csv=args.cpt_csv,
+        out_dir=args.out_dir,
+        embeddings_path=args.embeddings_path,
+        meta_path=args.meta_path
+    )
+    print('Building FAISS Index....')
+    # 2) build FAISS
+    count, dim = build_faiss_index(args.embeddings_path, args.faiss_path)
+    print('FAISS indexing completed.')fa
+    # 3) manifest for sanity
+    with open(os.path.join(args.out_dir, "manifest.json"), "w") as f:
+        json.dump({"count": count, "dim": dim, "icd": n_icd, "cpt": n_cpt}, f)
 
-
-def main(icd, cpt, out_dir):
-    os.makedirs(out_dir, exist_ok=True)
-    icd_codes = load_codes_from_csv(icd, system="ICD-10")
-    cpt_codes = load_codes_from_csv(cpt, system="CPT")
-    all_codes = icd_codes + cpt_codes
-    texts = [f"{c['code']} {c['description']}" for c in all_codes]
-    print(f"Embedding {len(texts)} codes...")
-    emb = embed_texts(texts)
-    emb = normalize_embeddings(emb.astype('float32'))
-
-    dim = emb.shape[1]
-    index = faiss.IndexFlatIP(dim)
-    index.add(emb)
-
-    index_path = os.path.join(out_dir, "faiss.index")
-    desc_path = os.path.join(out_dir, "descriptions.npy")
-    meta_path = os.path.join(out_dir, "meta.npy")
-    faiss.write_index(index, index_path)
-    np.save(desc_path, np.array(texts, dtype=object))
-    np.save(meta_path, np.array([c["code"] for c in all_codes], dtype=object))
-    print("Index written to", index_path)
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--icd', required=True)
-    parser.add_argument('--cpt', required=True)
-    parser.add_argument('--out', required=True)
-    args = parser.parse_args()
-    main(args.icd, args.cpt, args.out)
+    print(f"✅ FAISS index built at {args.faiss_path} | vectors: {count} dim: {dim} | ICD:{n_icd} CPT:{n_cpt}")

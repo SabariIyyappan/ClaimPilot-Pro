@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from app.schemas import UploadRequest, SuggestRequest, SuggestResponse, ClaimRequest, ClaimResponse, Entity, CodeSuggestion
 from app.ocr import extract_text_from_image_bytes, extract_text_from_pdf_bytes
 from app.ner import extract_entities
-from app.code_index import load_codes_from_csv, build_and_save_embeddings
+from app.code_index import load_codes_from_csv, build_embeddings_only
 from app.embeddings import embed_texts
 from app.retrieval import FaissIndexWrapper
 from app.llm_refine import refine
@@ -46,11 +46,14 @@ def suggest(req: SuggestRequest):
     except Exception:
         candidates = []
 
-    # 4) call LLM refine
-    refined = refine(ents, candidates, top_k=req.top_k)
+    
+
+    # # 4) call LLM refine
+    # refined = refine(ents, candidates, top_k=req.top_k)
 
     # map to response models
     ents_models = [Entity(text=e.get('text',''), label=e.get('label',''), start=e.get('start',0), end=e.get('end',0)) for e in ents]
+    return SuggestResponse(entities=ents_models, suggestions=candidates)
     suggestions = []
     for r in refined:
         suggestions.append(CodeSuggestion(code=r.get('code',''), system=r.get('system','ICD-10'), description=r.get('description',''), score=float(r.get('score',0.0)), reason=r.get('reason','')))

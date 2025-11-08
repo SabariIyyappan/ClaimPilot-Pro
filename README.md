@@ -7,26 +7,54 @@ Folder structure (created):
 - backend/app — FastAPI app and pipeline modules
 - data — sample `icd10.csv` and `mock_cpt.csv`
 
-Quick setup (Windows CMD):
+Quick setup (macOS — zsh)
 
-1. Create virtualenv and install deps
+Prerequisites
 
-```cmd
-python -m venv .venv
-.venv\Scripts\activate
+- Xcode command-line tools (clang) — required to build some packages:
+
+```bash
+xcode-select --install
+```
+
+- Homebrew (we use it here to install a compatible Python 3.11):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+Create a Python 3.11 virtual environment and install dependencies
+
+The project expects a venv at the repository root named `.venv`. The commands below create that venv using Homebrew's Python 3.11, upgrade pip, and install the pinned requirements in `backend/requirements.txt`.
+
+```bash
+# install Python 3.11 via Homebrew (if not already installed)
+brew install python@3.11
+PY311="$(brew --prefix python@3.11)/bin/python3.11"
+
+# recreate and activate the venv
+rm -rf .venv
+$PY311 -m venv .venv
+source .venv/bin/activate
+
+# upgrade packaging tools and install deps
+python -m pip install --upgrade pip setuptools wheel
 pip install -r backend/requirements.txt
 ```
 
-2. Optional: download spaCy model
+If you'd prefer to use the official python.org installer instead of Homebrew, install Python 3.11 from https://www.python.org/downloads/mac-osx/ and replace `$PY311` above with the path to that interpreter.
 
-```cmd
+Optional: download spaCy model
+
+```bash
 python -m spacy download en_core_web_sm
 ```
 
-3. Run the app
+Run the app (zsh)
 
-```cmd
-set OPENAI_API_KEY=your_key_here
+```bash
+export OPENAI_API_KEY=your_key_here
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
