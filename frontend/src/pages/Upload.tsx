@@ -9,24 +9,32 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ArrowRight, FileText } from 'lucide-react';
-import { uploadFile, uploadText } from '@/lib/api';
+import { uploadFile, uploadText, API_URL } from '@/lib/api';
 import { useClaimStore } from '@/store/claimStore';
 import { toast } from 'sonner';
 
 export default function Upload() {
   const navigate = useNavigate();
   const [pastedText, setPastedText] = useState('');
-  const { setText, setEntities, entities } = useClaimStore();
+  const [fromFile, setFromFile] = useState(false);
+  const { setText, setEntities, entities, setSuggestions } = useClaimStore();
 
   const uploadFileMutation = useMutation({
     mutationFn: uploadFile,
     onSuccess: (data) => {
       setText(data.text);
       setEntities(data.entities);
+      setSuggestions([]);
       toast.success('Document processed successfully');
     },
     onError: (error: any) => {
-      toast.error(error.message || 'Failed to process document');
+      const status = (error && (error as any).response && (error as any).response.status) as number | undefined;
+      const statusText = (error && (error as any).response && (error as any).response.statusText) as string | undefined;
+      const msg = status
+        ? `API ${status} ${statusText || ''}`.trim()
+        : `Network error contacting ${API_URL}. Is the backend running and CORS allowing ${window.location.origin}?`;
+      toast.error(msg);
+      try { console.error('[uploadFile] error', error); } catch {}
     },
   });
 
@@ -35,19 +43,29 @@ export default function Upload() {
     onSuccess: (data) => {
       setText(data.text);
       setEntities(data.entities);
+      setSuggestions([]);
       toast.success('Text processed successfully');
     },
     onError: (error: any) => {
-      toast.error(error.message || 'Failed to process text');
+      const status = (error && (error as any).response && (error as any).response.status) as number | undefined;
+      const statusText = (error && (error as any).response && (error as any).response.statusText) as string | undefined;
+      const msg = status
+        ? `API ${status} ${statusText || ''}`.trim()
+        : `Network error contacting ${API_URL}. Is the backend running and CORS allowing ${window.location.origin}?`;
+      toast.error(msg);
+      try { console.error('[uploadText] error', error); } catch {}
     },
   });
 
   const handleFileSelect = (file: File) => {
+    setFromFile(true);
     uploadFileMutation.mutate(file);
   };
 
   const handleTextSubmit = () => {
     if (pastedText.trim()) {
+      // Mark that this content is from text; preview panel stays hidden
+      setFromFile(false);
       uploadTextMutation.mutate(pastedText);
     }
   };
@@ -57,7 +75,8 @@ export default function Upload() {
   };
 
   const isLoading = uploadFileMutation.isPending || uploadTextMutation.isPending;
-  const hasContent = entities.length > 0;
+  // Show extracted preview only when content came from an uploaded file
+  const hasContent = fromFile && entities.length > 0;
 
   return (
     <div className="min-h-screen bg-background">

@@ -18,10 +18,12 @@ export default function Suggest() {
   const suggestMutation = useMutation({
     mutationFn: getSuggestions,
     onSuccess: (data) => {
+      try { console.log('[Suggest] suggestions', data?.suggestions?.length, data); } catch {}
       setSuggestions(data.suggestions);
       toast.success(`Found ${data.suggestions.length} code suggestions`);
     },
     onError: (error: any) => {
+      try { console.error('[Suggest] error', error); } catch {}
       toast.error(error.message || 'Failed to get suggestions');
     },
   });
@@ -31,10 +33,9 @@ export default function Suggest() {
       navigate('/upload');
       return;
     }
-    
-    if (suggestions.length === 0) {
-      suggestMutation.mutate({ text, top_k: 10 });
-    }
+    // Always refresh suggestions for the current text to avoid stale state
+    suggestMutation.mutate({ text, top_k: 10 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
   const handleContinue = () => {
