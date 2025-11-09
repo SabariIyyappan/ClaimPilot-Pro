@@ -1,6 +1,6 @@
 # ClaimPilot Pro — AI-Assisted Medical Coding & Claim Generation
 
-ClaimPilot Pro is an end‑to‑end coding assistant that extracts clinical context from notes, suggests ICD‑10 and CPT codes using retrieval + LLM, and generates professional claims (including CMS‑1500 PDFs). It ships with a FastAPI backend, a modern React/TypeScript frontend, and optional blockchain-style verification via deterministic claim hashing.
+ClaimPilot Pro is an end‑to‑end coding assistant that extracts clinical context from notes, suggests ICD‑10 and CPT codes using retrieval + LLM, and generates professional claims (including CMS‑1500 PDFs). It ships with a FastAPI backend, a modern React/TypeScript frontend.
 
 This README is hackathon‑ready: it covers setup, run, demo workflow, APIs, and packaging.
 
@@ -9,7 +9,6 @@ This README is hackathon‑ready: it covers setup, run, demo workflow, APIs, and
 - AI coding pipeline: NER ➜ retrieval (FAISS) ➜ Gemini LLM refinement ➜ human review
 - Clean React UI: upload, review suggestions, approve, sign, and export
 - CMS‑1500 PDF generation and basic claim PDF
-- Deterministic hash for claim audit logs (non‑PHI)
 
 ## Repository Structure
 
@@ -106,58 +105,8 @@ npm run dev
 
 3) Bonus talking points
 - Retrieval on/off: `SUGGEST_MODE=hybrid` uses FAISS candidates prior to LLM
-- Audit trail: claim metadata includes a deterministic hash and is logged to `data/claims.jsonl` (non‑PHI)
+- Audit trail: claim metadata 
 
-## API Overview
-
-Base URL: `http://localhost:8000`
-
-- POST `/upload`
-  - Form: `file` (PDF/JPG/PNG) or JSON `{ "text": "..." }`
-  - Response: `{ text, entities: [{ text, label, start, end }] }`
-
-- POST `/suggest`
-  - JSON: `{ "text": "...", "top_k": 5 }`
-  - Response: `{ entities, suggestions: [{ code, system, description, score, reason }] }`
-
-- POST `/generate_claim`
-  - JSON: `{ approved: [...], amount?, signed_by?, patient_id? }`
-  - Response: `{ claim_id, approved, metadata: { hash, source } }`
-
-- POST `/claim_pdf`
-  - JSON: `{ approved: [...] }`
-  - Response: PDF stream (application/pdf)
-
-- POST `/cms1500`
-  - JSON: `{ approved: [...], text?, patient_name?, patient_id?, provider_name?, date_of_service?, ... }`
-  - Response: PDF stream (CMS‑1500)
-
-- POST `/cms1500/derive`
-  - JSON: `{ text: "..." }`
-  - Response: derived fields for the CMS‑1500 dialog
-
-- GET `/config`, GET `/health`
-
-## Docker (Backend)
-
-Build and run the FastAPI backend in Docker:
-
-```bash
-docker build -t claimpilot-backend .
-docker run -e GEMINI_API_KEY=your_key -p 8000:8000 claimpilot-backend
-```
-
-Note: The Dockerfile installs Tesseract and poppler; mount `data/` if you want to persist FAISS or claims: `-v $(pwd)/data:/app/data`.
-
-## Troubleshooting
-
-- 403/CORS in browser: set `CORS_ORIGINS` to include your frontend origin (e.g., `http://localhost:5173`).
-- No suggestions returned: ensure `GEMINI_API_KEY` is set; otherwise the system falls back to a minimal heuristic. For hybrid mode, ensure `data/faiss.index` and `data/meta.npy` exist.
-- OCR empty text: install Tesseract; scanned PDFs may require poppler for rasterization.
-
-## Security & PHI
-
-This demo is not production‑ready for PHI. Do not submit real patient information. The claim hash and local audit log are designed to avoid storing PHI.
 
 ## License
 
