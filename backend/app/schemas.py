@@ -51,3 +51,11 @@ class CMS1500Request(BaseModel):
     patient_id: Optional[str] = None
     provider_name: Optional[str] = None
     date_of_service: Optional[str] = None
+    # Extended optional CMS-1500 fields
+    patient_dob: Optional[str] = None
+    patient_sex: Optional[str] = None
+    patient_address: Optional[str] = None
+    place_of_service: Optional[str] = None
+    referring_npi: Optional[str] = None
+    # Optional diagnosis pointers per procedure row (indices starting at 1)
+    diag_pointers: Optional[List[List[int]]] = None

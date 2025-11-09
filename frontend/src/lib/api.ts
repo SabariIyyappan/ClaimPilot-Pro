@@ -51,3 +51,19 @@ export const downloadClaimPdf = async (approved: CodeSuggestion[]): Promise<Blob
   const response = await api.post('/claim_pdf', { approved }, { responseType: 'blob' });
   return response.data as Blob;
 };
+
+// Derive CMS-1500 header fields from uploaded/parsed text
+export const deriveCms1500 = async (text: string): Promise<{
+  patient_name?: string;
+  patient_id?: string;
+  provider_name?: string;
+  date_of_service?: string;
+  patient_dob?: string;
+  patient_sex?: string;
+  patient_address?: string;
+  place_of_service?: string;
+  referring_npi?: string;
+}> => {
+  const { data } = await api.post('/cms1500/derive', { text });
+  return data as any;
+};

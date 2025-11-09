@@ -323,6 +323,11 @@ def cms1500(req: CMS1500Request):
     patient_id = req.patient_id or derived.get("patient_id", "")
     provider_name = req.provider_name or derived.get("provider_name", "")
     date_of_service = req.date_of_service or derived.get("date_of_service", "")
+    patient_dob = req.patient_dob or derived.get("patient_dob", "")
+    patient_sex = req.patient_sex or derived.get("patient_sex", "")
+    patient_address = req.patient_address or derived.get("patient_address", "")
+    place_of_service = req.place_of_service or derived.get("place_of_service", "")
+    referring_npi = req.referring_npi or derived.get("referring_npi", "")
 
     # Split codes into ICD diagnoses and CPT procedures
     approved_list = [_to_dict(c) for c in req.approved]
@@ -333,8 +338,14 @@ def cms1500(req: CMS1500Request):
         patient_id=patient_id,
         provider_name=provider_name,
         date_of_service=date_of_service,
+        patient_dob=patient_dob,
+        patient_sex=patient_sex,
+        patient_address=patient_address,
+        place_of_service=place_of_service,
+        referring_npi=referring_npi,
         diagnoses=diagnoses,
         procedures=procedures,
+        diag_pointers=req.diag_pointers or None,
     )
     return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=cms1500.pdf"

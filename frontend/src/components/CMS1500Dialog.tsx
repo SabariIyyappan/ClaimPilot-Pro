@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Download } from 'lucide-react';
 import type { CodeSuggestion } from '@/lib/types';
-import { downloadCms1500 } from '@/lib/api';
+import { downloadCms1500, deriveCms1500 } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface Props {
@@ -27,7 +27,34 @@ export function CMS1500Dialog({ open, onOpenChange, approved, text }: Props) {
   const [patientId, setPatientId] = useState('');
   const [providerName, setProviderName] = useState('');
   const [dateOfService, setDateOfService] = useState('');
+  const [patientDob, setPatientDob] = useState('');
+  const [patientSex, setPatientSex] = useState('');
+  const [patientAddress, setPatientAddress] = useState('');
+  const [placeOfService, setPlaceOfService] = useState('');
+  const [referringNpi, setReferringNpi] = useState('');
+  const [diagPtrInputs, setDiagPtrInputs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Autofill from backend-derived fields when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const d = await deriveCms1500(text || '');
+        setPatientName(d.patient_name || '');
+        setPatientId(d.patient_id || '');
+        setProviderName(d.provider_name || '');
+        setDateOfService(d.date_of_service || '');
+        setPatientDob(d.patient_dob || '');
+        setPatientSex(d.patient_sex || '');
+        setPatientAddress(d.patient_address || '');
+        setPlaceOfService(d.place_of_service || '');
+        setReferringNpi(d.referring_npi || '');
+      } catch {}
+      // default diag pointers to "1"
+      setDiagPtrInputs(approved.map(() => '1'));
+    })();
+  }, [open, text, approved]);
 
   const handleDownload = async () => {
     try {
@@ -39,6 +66,17 @@ export function CMS1500Dialog({ open, onOpenChange, approved, text }: Props) {
         patient_id: patientId || undefined,
         provider_name: providerName || undefined,
         date_of_service: dateOfService || undefined,
+        patient_dob: patientDob || undefined,
+        patient_sex: patientSex || undefined,
+        patient_address: patientAddress || undefined,
+        place_of_service: placeOfService || undefined,
+        referring_npi: referringNpi || undefined,
+        diag_pointers: diagPtrInputs.map((s) =>
+          (s || '1')
+            .split(',')
+            .map((x) => parseInt(x.trim(), 10))
+            .filter((n) => Number.isFinite(n) && n >= 1)
+        ),
       });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -84,6 +122,52 @@ export function CMS1500Dialog({ open, onOpenChange, approved, text }: Props) {
               <Label>Date of Service</Label>
               <Input type="date" value={dateOfService} onChange={(e) => setDateOfService(e.target.value)} />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Patient DOB</Label>
+                <Input type="date" value={patientDob} onChange={(e) => setPatientDob(e.target.value)} />
+              </div>
+              <div>
+                <Label>Sex</Label>
+                <Input placeholder="M/F" value={patientSex} onChange={(e) => setPatientSex(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label>Patient Address</Label>
+              <Input value={patientAddress} onChange={(e) => setPatientAddress(e.target.value)} placeholder="Street, City, State ZIP" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Place of Service (POS)</Label>
+                <Input placeholder="e.g., 11" value={placeOfService} onChange={(e) => setPlaceOfService(e.target.value)} />
+              </div>
+              <div>
+                <Label>Referring Provider NPI</Label>
+                <Input placeholder="e.g., 1234567890" value={referringNpi} onChange={(e) => setReferringNpi(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Diagnosis Pointers (per CPT row)</Label>
+              <div className="space-y-2">
+                {approved.slice(0, 10).map((p, idx) => (
+                  <div key={idx} className="grid grid-cols-12 items-center gap-2 text-sm">
+                    <div className="col-span-5 truncate">{p.code} – {p.description}</div>
+                    <div className="col-span-7">
+                      <Input
+                        value={diagPtrInputs[idx] || ''}
+                        onChange={(e) => {
+                          const next = [...diagPtrInputs];
+                          next[idx] = e.target.value;
+                          setDiagPtrInputs(next);
+                        }}
+                        placeholder="e.g., 1 or 1,3"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Simple visual layout approximating CMS-1500 boxes */}
@@ -94,7 +178,12 @@ export function CMS1500Dialog({ open, onOpenChange, approved, text }: Props) {
               <div className="col-span-5 border p-2">2. Patient ID<br/>{patientId || '—'}</div>
               <div className="col-span-7 border p-2">3. Provider Name<br/>{providerName || '—'}</div>
               <div className="col-span-5 border p-2">4. Date of Service<br/>{dateOfService || '—'}</div>
-              <div className="col-span-12 border p-2">5. Approved Codes ({approved.length}) – included in generated PDF</div>
+              <div className="col-span-6 border p-2">5. Patient DOB<br/>{patientDob || '—'}</div>
+              <div className="col-span-6 border p-2">6. Sex<br/>{patientSex || '—'}</div>
+              <div className="col-span-12 border p-2">7. Patient Address<br/>{patientAddress || '—'}</div>
+              <div className="col-span-6 border p-2">POS<br/>{placeOfService || '—'}</div>
+              <div className="col-span-6 border p-2">Referring NPI<br/>{referringNpi || '—'}</div>
+              <div className="col-span-12 border p-2">Approved Codes ({approved.length}) – included in generated PDF</div>
             </div>
             <p className="text-[11px] text-muted-foreground">The PDF generator uses these values to fill a CMS-1500 style form.</p>
           </Card>

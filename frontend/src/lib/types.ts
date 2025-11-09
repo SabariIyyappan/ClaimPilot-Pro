@@ -54,6 +54,14 @@ export interface CMS1500Request {
   patient_id?: string;
   provider_name?: string;
   date_of_service?: string;
+  // Extended optional fields for CMS-1500
+  patient_dob?: string;
+  patient_sex?: string;
+  patient_address?: string;
+  place_of_service?: string;
+  referring_npi?: string;
+  // Diagnosis pointers per procedure row, indices starting at 1
+  diag_pointers?: number[][];
 }
 
 export interface ClaimRecord {
