@@ -99,6 +99,45 @@ def parse_header_info(text: str) -> Dict[str, str]:
     # Ensure DOS is strictly a date token; otherwise leave blank
     if fields["date_of_service"] and not re.match(r"^(\d{4}-\d{2}-\d{2}|\d{1,2}[\-/]\d{1,2}[\-/]\d{2,4})$", fields["date_of_service"]):
         fields["date_of_service"] = ""
+
+    # SECOND PASS: scan entire text with regexes for common tokens when labels are missing
+    full = text or ""
+    # MRN / Patient ID
+    m = re.search(r"\b(?:MRN|Patient\s*ID|PID|ID)\s*[:#]?\s*([A-Za-z0-9\-]+)\b", full, flags=re.IGNORECASE)
+    if m and not fields["patient_id"]:
+        fields["patient_id"] = m.group(1)[:64]
+    # DOB
+    m = re.search(r"\b(?:DOB|Date\s*of\s*Birth)\s*[:#]?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[\-/]\d{1,2}[\-/]\d{2,4})\b", full, flags=re.IGNORECASE)
+    if m and not fields["patient_dob"]:
+        fields["patient_dob"] = m.group(1)
+    # Sex / Gender
+    m = re.search(r"\b(?:Sex|Gender)\s*[:#]?\s*(Male|Female|M|F)\b", full, flags=re.IGNORECASE)
+    if m and not fields["patient_sex"]:
+        sx = m.group(1).upper()
+        fields["patient_sex"] = "M" if sx.startswith("M") else ("F" if sx.startswith("F") else sx)
+    # NPI
+    m = re.search(r"\bNPI\s*[:#]?\s*(\d{10})\b", full, flags=re.IGNORECASE)
+    if m and not fields["referring_npi"]:
+        fields["referring_npi"] = m.group(1)
+    # POS
+    m = re.search(r"\b(?:POS|Place\s*of\s*Service)\s*[:#]?\s*(\d{2})\b", full, flags=re.IGNORECASE)
+    if m and not fields["place_of_service"]:
+        fields["place_of_service"] = m.group(1)
+    # Provider guess: look for 'Dr. <Name>' when provider_name is empty
+    m = re.search(r"\bDr\.\s+([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b", full)
+    if m and not fields["provider_name"]:
+        fields["provider_name"] = f"Dr. {m.group(1)}"[:64]
+    # Address heuristic: first line with a street suffix + optional next line with City, ST ZIP
+    if not fields["patient_address"]:
+        street_re = re.compile(r"\b\d{1,5}\s+.+\b(St|Street|Ave|Avenue|Road|Rd|Blvd|Lane|Ln|Dr|Drive)\b.*", re.IGNORECASE)
+        city_re = re.compile(r"^[A-Za-z\s]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b")
+        for i, ln in enumerate(lines):
+            if street_re.search(ln or ""):
+                addr = ln.strip()
+                if i + 1 < len(lines) and city_re.search(lines[i + 1] or ""):
+                    addr = addr + ", " + lines[i + 1].strip()
+                fields["patient_address"] = addr[:128]
+                break
     return fields
 
 
@@ -234,6 +273,20 @@ def generate_cms1500_pdf(patient_name: str,
     col_w = (right - left - 12) / cols
     diag = diagnoses[:12] if diagnoses else []
     if diag:
+        # Helper to clip a single line to available width
+        def clip_text(text: str, width: float) -> str:
+            if not text:
+                return ""
+            if c.stringWidth(text, fontName="Helvetica", fontSize=9) <= width:
+                return text
+            ell = "…"
+            ell_w = c.stringWidth(ell, fontName="Helvetica", fontSize=9)
+            out = ""
+            for ch in text:
+                if c.stringWidth(out + ch, fontName="Helvetica", fontSize=9) + ell_w > width:
+                    break
+                out += ch
+            return out + ell
         for i, item in enumerate(diag):
             code = str(item.get("code", ""))
             dsc = str(item.get("description", ""))
@@ -244,7 +297,9 @@ def generate_cms1500_pdf(patient_name: str,
             label = f"{i+1}. {code}"
             if dsc:
                 label += f" – {dsc[:70]}"
-            c.drawString(xp, yp, label)
+            # Clip to the column width to avoid overlapping the next column
+            avail = col_w - 10
+            c.drawString(xp, yp, clip_text(label, avail))
     else:
         c.drawString(left + 6, y - 18, "No diagnoses provided")
 

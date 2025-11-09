@@ -6,6 +6,12 @@ try:
 except Exception:
     pytesseract = None
 
+# Optional: use pdf2image to OCR scanned PDFs when text extraction fails
+try:
+    from pdf2image import convert_from_bytes  # type: ignore
+except Exception:
+    convert_from_bytes = None  # type: ignore
+
 
 def extract_text_from_image_bytes(image_bytes: bytes) -> str:
     """Return extracted text from image bytes. If pytesseract not installed, return empty string."""
@@ -17,16 +23,39 @@ def extract_text_from_image_bytes(image_bytes: bytes) -> str:
 
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
-    # Minimal stub: in production use pdfminer.six or pypdf to extract text reliably
+    """Extract text from a PDF.
+
+    Strategy:
+    1) Try pdfminer text extraction (works for text-based PDFs)
+    2) If empty/very short and pdf2image + pytesseract are available, rasterize
+       pages and OCR each page, then join.
+    """
+    text = ""
     try:
         from pdfminer.high_level import extract_text
         import tempfile
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
             f.write(pdf_bytes)
             path = f.name
-        return extract_text(path)
+        text = extract_text(path) or ""
     except Exception:
-        return ""
+        text = ""
+
+    # Fallback to OCR for scanned PDFs
+    if (not text or len(text.strip()) < 20) and convert_from_bytes and pytesseract:
+        try:
+            # Render pages at a reasonable DPI for OCR quality/speed tradeoff
+            pages = convert_from_bytes(pdf_bytes, dpi=200)
+            ocr_chunks = []
+            for pg in pages:
+                try:
+                    ocr_chunks.append(pytesseract.image_to_string(pg))
+                except Exception:
+                    continue
+            text = "\n".join([t for t in ocr_chunks if t and t.strip()])
+        except Exception:
+            pass
+    return text or ""
 
 
 def extract_clinical_note_section(text: str) -> str:

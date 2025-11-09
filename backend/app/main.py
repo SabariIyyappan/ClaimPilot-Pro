@@ -352,6 +352,70 @@ def cms1500(req: CMS1500Request):
     })
 
 
+@app.post("/cms1500/derive")
+def cms1500_derive(request: dict):
+    """Derive CMS-1500 header fields from raw text (used to prefill the dialog)."""
+    try:
+        text = str(request.get("text", "")) if isinstance(request, dict) else ""
+    except Exception:
+        text = ""
+    fields = parse_header_info(text)
+    # Friendly defaults to reduce empty UI fields
+    try:
+        import datetime as _dt
+        today = _dt.date.today().isoformat()
+    except Exception:
+        today = ""
+    if not fields.get("date_of_service"):
+        fields["date_of_service"] = today
+    if not fields.get("place_of_service"):
+        fields["place_of_service"] = "11"  # Office
+    # Normalize sex to short token when present
+    sex = (fields.get("patient_sex") or "").strip().upper()
+    if sex.startswith("M"):
+        fields["patient_sex"] = "M"
+    elif sex.startswith("F"):
+        fields["patient_sex"] = "F"
+    # Generate sensible random defaults for missing items (non‑PHI placeholders)
+    try:
+        import random as _rand
+        import datetime as _dt
+        # Patient name
+        if not fields.get("patient_name"):
+            first = _rand.choice(["John", "Jane", "Alex", "Sam", "Taylor", "Jordan", "Casey", "Riley"])  # type: ignore
+            last = _rand.choice(["Doe", "Smith", "Johnson", "Lee", "Brown", "Davis"])  # type: ignore
+            fields["patient_name"] = f"{first} {last}"
+        # Patient ID (MRN)
+        if not fields.get("patient_id"):
+            fields["patient_id"] = f"MRN-{_rand.randint(10000000, 99999999)}"
+        # Provider name
+        if not fields.get("provider_name"):
+            dr_first = _rand.choice(["Emily", "Michael", "Avery", "Chris", "Morgan"])  # type: ignore
+            dr_last = _rand.choice(["Carter", "Nguyen", "Patel", "Garcia", "Kim"])  # type: ignore
+            fields["provider_name"] = f"Dr. {dr_first} {dr_last}"
+        # Sex
+        if not fields.get("patient_sex"):
+            fields["patient_sex"] = _rand.choice(["M", "F"])  # type: ignore
+        # DOB from random age 20–75
+        if not fields.get("patient_dob"):
+            age = _rand.randint(20, 75)  # type: ignore
+            dob = _dt.date.today().replace(year=_dt.date.today().year - age)
+            fields["patient_dob"] = dob.isoformat()
+        # Address
+        if not fields.get("patient_address"):
+            house = _rand.randint(100, 9999)  # type: ignore
+            street = _rand.choice(["Main St", "Oak Ave", "Maple Rd", "Pine Blvd"])  # type: ignore
+            city = _rand.choice(["Springfield", "Fairview", "Riverton", "Greenville"])  # type: ignore
+            state = _rand.choice(["CA", "TX", "NY", "FL", "WA"])  # type: ignore
+            zipc = _rand.randint(10000, 99999)  # type: ignore
+            fields["patient_address"] = f"{house} {street}, {city}, {state} {zipc}"
+        # Referring NPI – generate 10‑digit number starting 1–9
+        if not fields.get("referring_npi"):
+            fields["referring_npi"] = str(_rand.randint(1000000000, 9999999999))  # type: ignore
+    except Exception:
+        pass
+    return fields
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
