@@ -80,21 +80,7 @@ export default function Review() {
     navigate('/suggest');
   };
 
-  const handleDownloadCMS1500 = async () => {
-    try {
-      const blob = await downloadCms1500({ approved, text });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'cms1500.pdf';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to generate CMS-1500 PDF');
-    }
-  };
+  // Removed standalone preview download; CMS-1500 is available via the dialog only
 
   const handleOpenCMS = () => setCmsOpen(true);
 
@@ -136,22 +122,12 @@ export default function Review() {
           <AmountEditor amount={amount} onChange={setAmount} />
           <SignatureBlock signedBy={signedBy} onChange={setSignedBy} />
 
-          <Button
-            onClick={handleDownloadCMS1500}
-            variant="outline"
-            size="lg"
-            className="w-full"
-          >
-            <Download className="mr-2 h-5 w-5" />
-            Download CMS-1500 (Preview)
-          </Button>
-
-          <Button
-            onClick={handleOpenCMS}
-            variant="secondary"
-            size="lg"
-            className="w-full"
-          >
+            <Button
+              onClick={handleOpenCMS}
+              variant="secondary"
+              size="lg"
+              className="w-full"
+            >
             <ClipboardList className="mr-2 h-5 w-5" />
             Review & Generate CMS-1500
           </Button>

@@ -271,6 +271,8 @@ def generate_claim(req: ClaimRequest):
         "claim_id": claim_id,
         "approved": [_to_dict(c) for c in req.approved],
         "patient_id": getattr(req, 'patient_id', None),
+        "amount": getattr(req, 'amount', None),
+        "signed_by": getattr(req, 'signed_by', None),
         "ts": int(time.time()),
         "source": "local-skeleton",
     }
@@ -289,7 +291,14 @@ def generate_claim(req: ClaimRequest):
     try:
         os.makedirs("data", exist_ok=True)
         with open(os.path.join("data", "claims.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"claim_id": claim_id, "ts": payload["ts"], "approved": payload["approved"]}) + "\n")
+            f.write(json.dumps({
+                "claim_id": claim_id,
+                "ts": payload["ts"],
+                "approved": payload["approved"],
+                "amount": payload.get("amount"),
+                "patient_id": payload.get("patient_id"),
+                "signed_by": payload.get("signed_by"),
+            }) + "\n")
     except Exception:
         pass
 

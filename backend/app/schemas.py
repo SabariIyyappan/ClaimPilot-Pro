@@ -33,7 +33,9 @@ class SuggestResponse(BaseModel):
 
 class ClaimRequest(BaseModel):
     approved: List[CodeSuggestion]
-    patient_id: Optional[str]
+    patient_id: Optional[str] = None
+    amount: Optional[float] = None
+    signed_by: Optional[str] = None
 
 
 class ClaimResponse(BaseModel):
