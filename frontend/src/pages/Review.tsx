@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { PageHeader } from '@/components/PageHeader';
@@ -15,19 +15,23 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { TxBadge } from '@/components/TxBadge';
-import { ArrowLeft, CheckCircle, FileText, Download } from 'lucide-react';
-import { generateClaim } from '@/lib/api';
+import { ArrowLeft, CheckCircle, FileText, Download, ClipboardList } from 'lucide-react';
+import { generateClaim, downloadCms1500 } from '@/lib/api';
 import { useClaimStore } from '@/store/claimStore';
+import { useClaimsStore } from '@/store/claimsStore';
 import { toast } from 'sonner';
 import type { GenerateClaimResponse } from '@/lib/types';
+import { CMS1500Dialog } from '@/components/CMS1500Dialog';
 
 export default function Review() {
   const navigate = useNavigate();
   const [successData, setSuccessData] = useState<GenerateClaimResponse | null>(null);
+  const [cmsOpen, setCmsOpen] = useState(false);
   const {
     approved,
     amount,
     signedBy,
+    text,
     setAmount,
     setSignedBy,
     removeApproved,
@@ -35,11 +39,22 @@ export default function Review() {
     addApproved,
     reset,
   } = useClaimStore();
+  const { add: addClaim } = useClaimsStore();
 
   const generateMutation = useMutation({
     mutationFn: generateClaim,
     onSuccess: (data) => {
       setSuccessData(data);
+      // Add to local claim history
+      try {
+        addClaim({
+          id: data.claim_id,
+          date: new Date().toISOString(),
+          codes_count: data.approved?.length || approved.length,
+          amount: amount || undefined,
+          tx_hash: data?.metadata?.tx?.hash || data?.metadata?.tx_hash,
+        });
+      } catch {}
       toast.success('Claim generated successfully');
     },
     onError: (error: any) => {
@@ -64,6 +79,24 @@ export default function Review() {
   const handleBack = () => {
     navigate('/suggest');
   };
+
+  const handleDownloadCMS1500 = async () => {
+    try {
+      const blob = await downloadCms1500({ approved, text });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cms1500.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to generate CMS-1500 PDF');
+    }
+  };
+
+  const handleOpenCMS = () => setCmsOpen(true);
 
   const handleCloseSuccess = () => {
     setSuccessData(null);
@@ -100,8 +133,28 @@ export default function Review() {
 
           {/* Right: Amount & Signature */}
           <div className="space-y-6">
-            <AmountEditor amount={amount} onChange={setAmount} />
-            <SignatureBlock signedBy={signedBy} onChange={setSignedBy} />
+          <AmountEditor amount={amount} onChange={setAmount} />
+          <SignatureBlock signedBy={signedBy} onChange={setSignedBy} />
+
+          <Button
+            onClick={handleDownloadCMS1500}
+            variant="outline"
+            size="lg"
+            className="w-full"
+          >
+            <Download className="mr-2 h-5 w-5" />
+            Download CMS-1500 (Preview)
+          </Button>
+
+          <Button
+            onClick={handleOpenCMS}
+            variant="secondary"
+            size="lg"
+            className="w-full"
+          >
+            <ClipboardList className="mr-2 h-5 w-5" />
+            Review & Generate CMS-1500
+          </Button>
 
             <Button
               onClick={handleGenerate}
@@ -202,6 +255,15 @@ export default function Review() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* CMS-1500 Detailed Dialog */}
+      <CMS1500Dialog
+        open={cmsOpen}
+        onOpenChange={setCmsOpen}
+        approved={approved}
+        text={text}
+      />
     </div>
   );
 }
+

@@ -1,22 +1,78 @@
 from fastapi import FastAPI, UploadFile, File, Form, Request
 from dotenv import load_dotenv
+from pathlib import Path
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.schemas import UploadRequest, SuggestRequest, SuggestResponse, ClaimRequest, ClaimResponse, Entity, CodeSuggestion
+from app.schemas import UploadRequest, SuggestRequest, SuggestResponse, ClaimRequest, ClaimResponse, Entity, CodeSuggestion, CMS1500Request
 from app.ocr import extract_text_from_image_bytes, extract_text_from_pdf_bytes
 from app.ner import extract_entities
 from app.embeddings import embed_texts
 from app.retrieval import FaissIndexWrapper
-from app.llm_refine import refine, generate_codes_from_text
+from app.pdfgen import generate_claim_pdf
+from app.cms1500 import parse_header_info, split_codes, generate_cms1500_pdf
+from app.blockchain import compute_claim_hash, create_mock_tx
 import os
 import uuid
 from typing import List, Dict, Tuple, Optional
+import json
+import time
 
-load_dotenv()
+# Ensure we load env from backend/.env even when running uvicorn from repo root
+_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(_ENV_PATH)
+
+# Import LLM after env is loaded so keys are visible
+from app.llm_refine import refine, generate_codes_from_text
 app = FastAPI(title="ClaimPilot Coding Agent - Skeleton")
+
+# Debug helper (enabled when LLM_DEBUG=1/true)
+def _dbg(msg: str) -> None:
+    if os.environ.get("LLM_DEBUG", "").lower() in ("1", "true", "yes"):
+        try:
+            print(f"[backend] {msg}")
+        except Exception:
+            pass
+
+# Helper to support both Pydantic v1 (.dict) and v2 (.model_dump)
+def _to_dict(item):
+    try:
+        if hasattr(item, "model_dump"):
+            return item.model_dump()
+        if hasattr(item, "dict"):
+            return item.dict()
+    except Exception:
+        pass
+    return item
+
+# CORS for local frontends (Vite/Cra) or custom origins via env
+_cors_origins = os.environ.get(
+    "CORS_ORIGINS",
+    # Default allow common local dev ports
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:8080,http://127.0.0.1:8080,"
+    "http://localhost:5173,http://127.0.0.1:5173"
+)
+origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    # Allow any localhost port for smoother local dev
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(None), text: str = Form(None)):
+async def upload(
+    request: Request,
+    file: UploadFile = File(None),
+    text: str = Form(None),
+    clinical_only: bool = Form(True),
+    auto_suggest: bool = Form(False),
+):
     """Accept a file (PDF/image) or plain text. Return extracted text and entities."""
     extracted = ""
     if file is not None:
@@ -25,12 +81,62 @@ async def upload(file: UploadFile = File(None), text: str = Form(None)):
             extracted = extract_text_from_pdf_bytes(content)
         else:
             extracted = extract_text_from_image_bytes(content)
+    # Accept JSON body with text as well
+    if not text:
+        ct = request.headers.get("content-type", "").lower()
+        if "application/json" in ct:
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    text = body.get("text")
+                    # allow overriding flags via JSON
+                    clinical_only = body.get("clinical_only", clinical_only)
+                    auto_suggest = body.get("auto_suggest", auto_suggest)
+            except Exception:
+                pass
+
     if text:
         # prefer provided text if present
         extracted = text
 
+    # If requested (default True), keep only the Clinical Note section
+    if clinical_only:
+        try:
+            from app.ocr import extract_clinical_note_section
+            extracted = extract_clinical_note_section(extracted)
+        except Exception:
+            pass
+
     ents = extract_entities(extracted)
+
+    # Optional: immediately run suggestions to streamline front-end flow
+    if auto_suggest:
+        try:
+            from app.llm_refine import generate_codes_from_text
+            sugg = generate_codes_from_text(ents, extracted, top_k=10)
+        except Exception:
+            sugg = []
+        return {"text": extracted, "entities": ents, "suggestions": sugg}
+
     return {"text": extracted, "entities": ents}
+
+
+@app.get("/config")
+def config():
+    mode = os.environ.get("SUGGEST_MODE", "llm").lower()
+    gem_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+    # Basic check for FAISS files
+    faiss_present = all(os.path.exists(p) for p in [
+        os.path.join("data", "faiss.index"),
+        os.path.join("data", "meta.npy"),
+    ])
+    return {
+        "mode": mode,
+        "llm_provider": "gemini",
+        "llm_model": gem_model,
+        "retrieval_enabled": bool(faiss_present),
+        "version": "0.1",
+    }
 
 
 @app.post("/suggest", response_model=SuggestResponse)
@@ -51,10 +157,12 @@ async def suggest(
             pass
     text = text or ""
     top_k = top_k if top_k is not None else 5
+    _dbg(f"/suggest: mode={os.environ.get('SUGGEST_MODE','llm')} text_chars={len(text)} top_k={top_k}")
     # 1) Extract entities
     ents: List[Dict] = extract_entities(text)
+    _dbg(f"/suggest: ents={len(ents)}")
 
-    # Prefer direct LLM coding when enabled (default)
+    # LLM-only medical coding is the default and recommended flow
     suggest_mode = os.environ.get("SUGGEST_MODE", "llm").lower()
     if suggest_mode == "llm":
         direct = generate_codes_from_text(ents, text, top_k=top_k)
@@ -68,16 +176,19 @@ async def suggest(
                 score=float(r.get('score',0.0)),
                 reason=str(r.get('reason',''))
             ))
+        _dbg(f"/suggest: LLM suggestions={len(suggestions)}")
         return SuggestResponse(entities=ents_models, suggestions=suggestions)
 
-    # 2) Load FAISS index (hybrid mode)
+    # 2) Optional retrieval (no hardcoding/heuristics). If FAISS files are present
+    # and SUGGEST_MODE != 'llm', do a simple text-based retrieval to supply
+    # candidates to the LLM for refinement.
     idx = FaissIndexWrapper(
         index_path="data/faiss.index",
         desc_path="data/descriptions.npy",
         meta_path="data/meta.npy",
     )
 
-    # 3) Hybrid retrieval: full text + key entity phrases
+    # 3) Retrieval: full text + up to 3 long entity phrases (no keyword hacks)
     def _pick_entity_phrases(items: List[Dict], max_n: int = 3) -> List[str]:
         seen = set()
         # prefer longer, meaningful snippets
@@ -102,48 +213,15 @@ async def suggest(
         q_full = embed_texts([text])
         all_candidates.extend(idx.search(q_full, top_k=max(top_k, 10)))
 
-        # Entity phrase queries
+        # Entity phrase queries (no keyword expansions)
         phrases = _pick_entity_phrases(ents, max_n=3)
         if phrases:
             q_ents = embed_texts(phrases)
             all_candidates.extend(idx.search(q_ents, top_k=max(top_k, 10)))
-
-        # Targeted keyword expansion to improve CPT coverage (MRI, consult, therapy, arthroscopy, etc.)
-        kw_phrases: List[str] = []
-        tl = text.lower()
-        if "mri" in tl or "magnetic resonance" in tl:
-            # Include knee/LE joint variants
-            kw_phrases += [
-                "MRI knee",
-                "magnetic resonance imaging knee",
-                "MRI lower extremity joint",
-                "knee MRI without contrast",
-                "MRI joint knee",
-            ]
-        if "arthroscop" in tl or "surgery" in tl or "repair" in tl:
-            kw_phrases += [
-                "arthroscopic knee repair",
-                "knee arthroscopy",
-                "arthroscopic meniscal repair",
-            ]
-        if "consult" in tl or "outpatient" in tl or "follow-up" in tl:
-            kw_phrases += [
-                "outpatient consult",
-                "evaluation and management new patient",
-                "follow-up visit outpatient",
-            ]
-        if "therapy" in tl or "physical therapy" in tl:
-            kw_phrases += [
-                "physical therapy session",
-                "therapeutic exercise",
-            ]
-        if kw_phrases:
-            q_kw = embed_texts(kw_phrases)
-            all_candidates.extend(idx.search(q_kw, top_k=max(top_k, 10)))
     except Exception:
         all_candidates = []
 
-    # 4) Aggregate and apply lightweight heuristics
+    # 4) Aggregate only (no heuristic boosts)
     def _aggregate(cands: List[Dict]) -> List[Dict]:
         agg: Dict[Tuple[str, str], Dict] = {}
         for c in cands:
@@ -154,61 +232,20 @@ async def suggest(
             key = (code, system)
             if key not in agg or score > agg[key]["score"]:
                 agg[key] = {"code": code, "system": system, "description": desc, "score": score}
-
-        # Heuristic boosts based on clinical text
-        text_lower = text.lower()
-        icd_cues = ["diagnos", "tear", "fracture", "pain", "disease", "injury", "infarct", "diabetes", "hypertension", "infection"]
-        cpt_cues = ["arthroscop", "surgery", "repair", "procedure", "consult", "outpatient", "therapy", "mri", "ct", "x-ray", "injection", "stent", "placement"]
-        icd_boost = 0.08 if any(k in text_lower for k in icd_cues) else 0.0
-        cpt_boost = 0.08 if any(k in text_lower for k in cpt_cues) else 0.0
-
         out = []
         for v in agg.values():
-            boost = icd_boost if v["system"].upper().startswith("ICD") else (cpt_boost if v["system"].upper().startswith("CPT") else 0.0)
-            v2 = dict(v)
-            v2["score"] = float(v["score"]) + boost
-            out.append(v2)
+            out.append({**v, "score": float(v.get("score", 0.0))})
         out.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         return out
 
     aggregated = _aggregate(all_candidates)
 
-    # 5) Use LLM refine when available; fallback otherwise
-    # Send a broader pool to the LLM for better choice; keep up to 20
+    # 5) Use LLM refine on a broader pool; keep up to 20
     pool_for_llm = aggregated[:20] if aggregated else []
     refined = refine(ents, pool_for_llm, clinical_text=text, top_k=top_k)
 
-    # 6) Enforce desired mix: 1 ICD-10 + 2 CPT when possible
-    def _enforce_mix(ref: List[Dict], pool: List[Dict], k: int) -> List[Dict]:
-        # Try to include both ICD and CPT when available, up to k
-        icd = [r for r in ref if str(r.get("system", "")).upper().startswith("ICD")]
-        cpt = [r for r in ref if str(r.get("system", "")).upper().startswith("CPT")]
-        out: List[Dict] = []
-        # Always include at least one ICD if available
-        if icd:
-            out.append(icd[0])
-        # Include up to k-1 CPT if available
-        for r in cpt:
-            if len(out) >= k:
-                break
-            out.append(r)
-        # Backfill with additional ICD then CPT from pool if still short
-        if len(out) < k:
-            for p in pool:
-                if str(p.get("system", "")).upper().startswith("ICD") and p not in out:
-                    out.append({**p, "reason": p.get("reason", "Primary diagnosis inferred from text.")})
-                if len(out) >= k:
-                    break
-        if len(out) < k:
-            for p in pool:
-                if str(p.get("system", "")).upper().startswith("CPT") and p not in out:
-                    out.append({**p, "reason": p.get("reason", "Procedure/visit inferred from text.")})
-                if len(out) >= k:
-                    break
-        # Final cap
-        return out[:max(1, k)]
-
-    final_suggestions = _enforce_mix(refined, aggregated, top_k)
+    # 6) Use refined results as-is (no enforced mix)
+    final_suggestions = refined[:max(1, top_k)] if refined else aggregated[:max(1, top_k)]
 
     # map to response models
     ents_models = [Entity(text=e.get('text',''), label=e.get('label',''), start=e.get('start',0), end=e.get('end',0)) for e in ents]
@@ -222,15 +259,77 @@ async def suggest(
             reason=str(r.get('reason',''))
         ))
 
+    _dbg(f"/suggest: hybrid suggestions={len(suggestions)}")
     return SuggestResponse(entities=ents_models, suggestions=suggestions)
 
 
 @app.post("/generate_claim", response_model=ClaimResponse)
 def generate_claim(req: ClaimRequest):
-    # In production we would persist claim metadata to Supabase/Postgres and return an id
+    # Generate id and basic metadata
     claim_id = str(uuid.uuid4())
-    metadata = {"source": "local-skeleton"}
+    payload = {
+        "claim_id": claim_id,
+        "approved": [_to_dict(c) for c in req.approved],
+        "patient_id": getattr(req, 'patient_id', None),
+        "ts": int(time.time()),
+        "source": "local-skeleton",
+    }
+
+    # Compute deterministic hash and create a mock blockchain tx
+    try:
+        h = compute_claim_hash({k: v for k, v in payload.items() if k != 'approved'})
+        tx = create_mock_tx(h)
+    except Exception:
+        h = ""
+        tx = {}
+
+    metadata = {"hash": h, "tx": tx, "source": payload["source"]}
+
+    # Append to a local audit log (no PHI stored)
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open(os.path.join("data", "claims.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"claim_id": claim_id, "ts": payload["ts"], "approved": payload["approved"]}) + "\n")
+    except Exception:
+        pass
+
     return ClaimResponse(claim_id=claim_id, approved=req.approved, metadata=metadata)
+
+
+@app.post("/claim_pdf")
+def claim_pdf(req: ClaimRequest):
+    # Generate a transient claim id for the PDF header
+    cid = str(uuid.uuid4())
+    pdf_bytes = generate_claim_pdf(cid, [_to_dict(c) for c in req.approved])
+    return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=claim_{cid}.pdf"
+    })
+
+
+@app.post("/cms1500")
+def cms1500(req: CMS1500Request):
+    # Derive header fields from text if present
+    derived = parse_header_info(req.text or "")
+    patient_name = req.patient_name or derived.get("patient_name", "")
+    patient_id = req.patient_id or derived.get("patient_id", "")
+    provider_name = req.provider_name or derived.get("provider_name", "")
+    date_of_service = req.date_of_service or derived.get("date_of_service", "")
+
+    # Split codes into ICD diagnoses and CPT procedures
+    approved_list = [_to_dict(c) for c in req.approved]
+    diagnoses, procedures = split_codes(approved_list)
+
+    pdf_bytes = generate_cms1500_pdf(
+        patient_name=patient_name,
+        patient_id=patient_id,
+        provider_name=provider_name,
+        date_of_service=date_of_service,
+        diagnoses=diagnoses,
+        procedures=procedures,
+    )
+    return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=cms1500.pdf"
+    })
 
 
 @app.get("/health")

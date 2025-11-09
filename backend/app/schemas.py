@@ -40,3 +40,12 @@ class ClaimResponse(BaseModel):
     claim_id: str
     approved: List[CodeSuggestion]
     metadata: dict
+
+
+class CMS1500Request(BaseModel):
+    approved: List[CodeSuggestion]
+    text: Optional[str] = None
+    patient_name: Optional[str] = None
+    patient_id: Optional[str] = None
+    provider_name: Optional[str] = None
+    date_of_service: Optional[str] = None

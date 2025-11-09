@@ -16,6 +16,7 @@ export interface CodeSuggestion {
 export interface UploadResponse {
   text: string;
   entities: Entity[];
+  suggestions?: CodeSuggestion[];
 }
 
 export interface SuggestRequest {
@@ -43,7 +44,16 @@ export interface ClaimMetadata {
 export interface GenerateClaimResponse {
   claim_id: string;
   approved: CodeSuggestion[];
-  metadata: ClaimMetadata;
+  metadata: any;
+}
+
+export interface CMS1500Request {
+  approved: CodeSuggestion[];
+  text?: string;
+  patient_name?: string;
+  patient_id?: string;
+  provider_name?: string;
+  date_of_service?: string;
 }
 
 export interface ClaimRecord {

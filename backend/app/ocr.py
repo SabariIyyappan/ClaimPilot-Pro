@@ -27,3 +27,55 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
         return extract_text(path)
     except Exception:
         return ""
+
+
+def extract_clinical_note_section(text: str) -> str:
+    """Heuristically slice out the 'Clinical Note' section only.
+
+    Strategy:
+    - Find the first occurrence of 'Clinical Note' (or 'Clinical Notes')
+    - Cut until the next known header (e.g., 'Recommendations', 'Follow-Up', 'Assessment', 'Plan', 'Medications', etc.)
+    - If not found, return original text.
+    """
+    if not text:
+        return text
+    t = text.replace("\r", "")
+    low = t.lower()
+    # Start header
+    start = low.find("clinical note")
+    if start == -1:
+        start = low.find("clinical notes")
+    if start == -1:
+        return text
+
+    # Candidate end headers
+    headers = [
+        "recommendations and follow-up",
+        "recommendations",
+        "follow-up",
+        "assessment",
+        "plan",
+        "medications",
+        "final diagnoses",
+        "diagnoses",
+        "discharge instructions",
+        "department",
+        "signature",
+    ]
+    next_positions = []
+    for h in headers:
+        idx = low.find(h, start + 1)
+        if idx != -1:
+            next_positions.append(idx)
+    end = min(next_positions) if next_positions else len(t)
+
+    section = t[start:end]
+    # Drop the header line itself
+    lines = section.splitlines()
+    drop_idx = 0
+    for i, line in enumerate(lines):
+        if "clinical note" in line.lower():
+            drop_idx = i + 1
+            break
+    body = "\n".join(lines[drop_idx:]).strip()
+    return body or section.strip()

@@ -13,27 +13,13 @@ import { TxBadge } from '@/components/TxBadge';
 import { FileText, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-
-// Mock data for demonstration
-const mockClaims = [
-  {
-    id: 'CLM-2024-001',
-    date: '2024-01-15',
-    codes_count: 5,
-    amount: 1250.00,
-    tx_hash: '0x742d35cc6634c0532925a3b844bc9e7fe6e0d3f1b3f3e9c2d0f5a9b5f3e7a9c5',
-  },
-  {
-    id: 'CLM-2024-002',
-    date: '2024-01-14',
-    codes_count: 3,
-    amount: 875.50,
-    tx_hash: '0x8a3f57dd7845d0643a36b4c955cd0e8f7f0e4g2c4g4f0d3e1g6b0cg4f8b0d6',
-  },
-];
+import { useClaimsStore } from '@/store/claimsStore';
 
 export default function Claims() {
   const navigate = useNavigate();
+  const { items } = useClaimsStore();
+
+  const claims = items;
 
   return (
     <div className="min-h-screen bg-background">
@@ -49,7 +35,7 @@ export default function Claims() {
           </Button>
         </div>
 
-        {mockClaims.length === 0 ? (
+        {claims.length === 0 ? (
           <Card className="p-16">
             <div className="flex flex-col items-center justify-center gap-4 text-center">
               <Database className="h-16 w-16 text-muted-foreground" />
@@ -78,7 +64,7 @@ export default function Claims() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mockClaims.map((claim) => (
+                {claims.map((claim) => (
                   <TableRow key={claim.id} className="cursor-pointer hover:bg-accent/50">
                     <TableCell>
                       {new Date(claim.date).toLocaleDateString('en-US', {
@@ -94,10 +80,10 @@ export default function Claims() {
                       <Badge variant="secondary">{claim.codes_count}</Badge>
                     </TableCell>
                     <TableCell className="text-right font-semibold">
-                      ${claim.amount.toFixed(2)}
+                      {typeof claim.amount === 'number' ? `$${claim.amount.toFixed(2)}` : '—'}
                     </TableCell>
                     <TableCell>
-                      <TxBadge txHash={claim.tx_hash} />
+                      {claim.tx_hash ? <TxBadge txHash={claim.tx_hash} /> : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                   </TableRow>
                 ))}
