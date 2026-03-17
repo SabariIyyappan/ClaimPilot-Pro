@@ -160,8 +160,7 @@ export default function Review() {
 
             <Card className="p-4 bg-muted/30">
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Your claim will be recorded on the Polygon testnet blockchain for verification
-                and audit purposes.
+                Your claim details will be saved locally for verification and audit purposes.
               </p>
             </Card>
           </div>
@@ -179,7 +178,7 @@ export default function Review() {
             </div>
             <DialogTitle className="text-center text-2xl">Claim Generated!</DialogTitle>
             <DialogDescription className="text-center text-base">
-              Your claim has been successfully generated and recorded on the blockchain.
+              Your claim has been successfully generated and logged.
             </DialogDescription>
           </DialogHeader>
 

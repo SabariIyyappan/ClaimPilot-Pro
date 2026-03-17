@@ -1,0 +1,10 @@
+project_name            = "claimpilot-pro"
+environment             = "demo"
+aws_region              = "us-east-1"
+lambda_package_path     = "../../dist/backend-lambda.zip"
+cors_allowed_origins    = ["https://your-project.vercel.app"]
+cors_allow_origin_regex = "https://([a-z0-9-]+\\.)*vercel\\.app$"
+gemini_api_key          = "replace_me"
+documents_bucket_name   = "claimpilot-demo-documents-123456789012"
+lambda_memory_size      = 1024
+lambda_timeout          = 30

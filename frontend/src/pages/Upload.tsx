@@ -4,23 +4,41 @@ import { useMutation } from '@tanstack/react-query';
 import { PageHeader } from '@/components/PageHeader';
 import { FileDrop } from '@/components/FileDrop';
 import { PasteText } from '@/components/PasteText';
+import { SampleNotes } from '@/components/SampleNotes';
 import { EntityChips } from '@/components/EntityChips';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { ArrowRight, FileText } from 'lucide-react';
-import { uploadFile, uploadText, API_URL } from '@/lib/api';
+import {
+  uploadFile,
+  uploadText,
+  API_URL,
+  ENABLE_S3_DIRECT_UPLOAD,
+  createPresignedUpload,
+  putFileToPresignedUrl,
+  processUploadedFile,
+} from '@/lib/api';
 import { useClaimStore } from '@/store/claimStore';
 import { toast } from 'sonner';
+import type { SampleNote } from '@/lib/sampleNotes';
 
 export default function Upload() {
   const navigate = useNavigate();
   const [pastedText, setPastedText] = useState('');
-  const [fromFile, setFromFile] = useState(false);
-  const { setText, setEntities, entities, setSuggestions } = useClaimStore();
+  const { text, setText, setEntities, entities, setSuggestions } = useClaimStore();
 
   const uploadFileMutation = useMutation({
-    mutationFn: uploadFile,
+    mutationFn: async (file: File) => {
+      if (!ENABLE_S3_DIRECT_UPLOAD) {
+        return uploadFile(file);
+      }
+      const presigned = await createPresignedUpload({
+        filename: file.name,
+        content_type: file.type || 'application/octet-stream',
+      });
+      await putFileToPresignedUrl(presigned.upload_url, file, presigned.headers || {});
+      return processUploadedFile(presigned.key, file.name);
+    },
     onSuccess: (data) => {
       setText(data.text);
       setEntities(data.entities);
@@ -58,16 +76,17 @@ export default function Upload() {
   });
 
   const handleFileSelect = (file: File) => {
-    setFromFile(true);
     uploadFileMutation.mutate(file);
   };
 
   const handleTextSubmit = () => {
     if (pastedText.trim()) {
-      // Mark that this content is from text; preview panel stays hidden
-      setFromFile(false);
       uploadTextMutation.mutate(pastedText);
     }
+  };
+
+  const handleSampleSelect = (sample: SampleNote) => {
+    setPastedText(sample.text);
   };
 
   const handleContinue = () => {
@@ -75,98 +94,90 @@ export default function Upload() {
   };
 
   const isLoading = uploadFileMutation.isPending || uploadTextMutation.isPending;
-  // Show extracted preview only when content came from an uploaded file
-  const hasContent = fromFile && entities.length > 0;
+  const hasContent = Boolean(text.trim());
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto max-w-7xl px-4 py-8 space-y-8">
+      <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6 sm:space-y-8 sm:py-8">
         <PageHeader
           title="Upload Clinical Note"
           subtitle="Start by uploading a document or pasting clinical note text"
           step={{ current: 1, total: 3 }}
         />
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Left: Upload Section */}
-          <div className="space-y-6">
-            <FileDrop onFileSelect={handleFileSelect} />
-            
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <Separator />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="bg-background px-4 text-muted-foreground">or</span>
-              </div>
+        <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
+          <Card className="p-4 sm:p-6">
+            <div className="space-y-4">
+              <h3 className="font-semibold">Drop PDF Or Image</h3>
+              <FileDrop onFileSelect={handleFileSelect} />
             </div>
+          </Card>
 
-            <PasteText value={pastedText} onChange={setPastedText} />
+          <Card className="p-4 sm:p-6">
+            <h3 className="mb-4 flex items-center gap-2 font-semibold">
+              <FileText className="h-5 w-5 text-primary" />
+              Extracted Content Preview
+            </h3>
 
-            {pastedText.trim() && !hasContent && (
+            {isLoading ? (
+              <div className="space-y-3">
+                <div className="h-4 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-4/6 animate-pulse rounded bg-muted" />
+              </div>
+            ) : hasContent ? (
+              <div className="space-y-4">
+                <div className="max-h-[300px] overflow-y-auto rounded-lg bg-muted/30 p-3 sm:p-4">
+                  <pre className="font-mono text-sm whitespace-pre-wrap break-words">{text}</pre>
+                </div>
+
+                <div>
+                  <p className="mb-3 text-sm text-muted-foreground">Detected Entities:</p>
+                  {entities.length > 0 ? (
+                    <EntityChips entities={entities} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No entities detected yet.</p>
+                  )}
+                </div>
+
+                <Button onClick={handleContinue} className="w-full" size="lg">
+                  Suggest Codes
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-muted-foreground">
+                <p>Upload a document or process text to see the extracted preview</p>
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-4 sm:p-6">
+            <div className="space-y-4">
+              <h3 className="font-semibold">Paste Clinical Notes</h3>
+              <PasteText value={pastedText} onChange={setPastedText} />
               <Button
                 onClick={handleTextSubmit}
                 className="w-full"
                 size="lg"
-                disabled={isLoading}
+                disabled={!pastedText.trim() || isLoading}
               >
                 {isLoading ? 'Processing...' : 'Process Text'}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
-            )}
-          </div>
+            </div>
+          </Card>
 
-          {/* Right: Preview Section */}
           <div className="space-y-6">
-            <Card className="p-6">
-              <h3 className="font-semibold mb-4 flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
-                Extracted Content Preview
-              </h3>
+            <SampleNotes onSelect={handleSampleSelect} />
 
-              {isLoading ? (
-                <div className="space-y-3">
-                  <div className="h-4 bg-muted animate-pulse rounded" />
-                  <div className="h-4 bg-muted animate-pulse rounded w-5/6" />
-                  <div className="h-4 bg-muted animate-pulse rounded w-4/6" />
-                </div>
-              ) : hasContent ? (
-                <div className="space-y-4">
-                  <div className="bg-muted/30 p-4 rounded-lg max-h-[300px] overflow-y-auto">
-                    <pre className="font-mono text-sm whitespace-pre-wrap break-words">
-                      {useClaimStore.getState().text}
-                    </pre>
-                  </div>
-                  
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-3">Detected Entities:</p>
-                    <EntityChips entities={entities} />
-                  </div>
-
-                  <Button
-                    onClick={handleContinue}
-                    className="w-full"
-                    size="lg"
-                  >
-                    Continue to Suggestions
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <p>Upload a document or paste text to see the preview</p>
-                </div>
-              )}
+            <Card className="border-primary/20 bg-accent/30 p-4 sm:p-6">
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                <strong className="text-foreground">Flow:</strong> upload or paste a note, review the extracted text,
+                then click <span className="font-medium text-foreground">Suggest Codes</span> to continue to the
+                suggestions page.
+              </p>
             </Card>
-
-            {hasContent && (
-              <Card className="p-6 bg-accent/30 border-primary/20">
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  <strong className="text-foreground">Next step:</strong> Our AI will analyze this clinical note
-                  and suggest appropriate ICD-10 diagnosis codes and CPT procedure codes based on the content.
-                </p>
-              </Card>
-            )}
           </div>
         </div>
       </div>

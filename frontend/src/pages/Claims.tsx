@@ -9,7 +9,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { TxBadge } from '@/components/TxBadge';
 import { FileText, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
@@ -27,7 +26,7 @@ export default function Claims() {
         <div className="flex items-center justify-between">
           <PageHeader
             title="Claim History"
-            subtitle="View all generated claims and their blockchain records"
+            subtitle="View all generated claims and their audit records"
           />
           <Button onClick={() => navigate('/upload')}>
             <FileText className="mr-2 h-4 w-4" />
@@ -60,7 +59,7 @@ export default function Claims() {
                   <TableHead>Claim ID</TableHead>
                   <TableHead className="text-center">Codes</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Blockchain TX</TableHead>
+                  {/* Removed Blockchain TX column */}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -82,9 +81,7 @@ export default function Claims() {
                     <TableCell className="text-right font-semibold">
                       {typeof claim.amount === 'number' ? `$${claim.amount.toFixed(2)}` : '—'}
                     </TableCell>
-                    <TableCell>
-                      {claim.tx_hash ? <TxBadge txHash={claim.tx_hash} /> : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
+                    {/* TX column removed */}
                   </TableRow>
                 ))}
               </TableBody>

@@ -35,7 +35,7 @@ if __name__ == "__main__":
     print('Building FAISS Index....')
     # 2) build FAISS
     count, dim = build_faiss_index(args.embeddings_path, args.faiss_path)
-    print('FAISS indexing completed.')fa
+    print('FAISS indexing completed.')
     # 3) manifest for sanity
     with open(os.path.join(args.out_dir, "manifest.json"), "w") as f:
         json.dump({"count": count, "dim": dim, "icd": n_icd, "cpt": n_cpt}, f)

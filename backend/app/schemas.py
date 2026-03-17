@@ -59,3 +59,23 @@ class CMS1500Request(BaseModel):
     referring_npi: Optional[str] = None
     # Optional diagnosis pointers per procedure row (indices starting at 1)
     diag_pointers: Optional[List[List[int]]] = None
+
+
+class PresignUploadRequest(BaseModel):
+    filename: str
+    content_type: str
+
+
+class PresignUploadResponse(BaseModel):
+    upload_url: str
+    key: str
+    bucket: str
+    expires_in: int
+    headers: dict
+
+
+class ProcessUploadedFileRequest(BaseModel):
+    key: str
+    filename: str
+    clinical_only: bool = True
+    auto_suggest: bool = False

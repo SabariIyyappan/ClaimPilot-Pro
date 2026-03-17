@@ -1,0 +1,10 @@
+fastapi==0.115.6
+pdfminer.six==20240706
+Pillow==11.0.0
+pydantic==2.9.2
+python-dotenv==1.2.1
+python-multipart==0.0.6
+reportlab==4.4.4
+google-genai==0.5.0
+websockets==14.2
+mangum==0.19.0

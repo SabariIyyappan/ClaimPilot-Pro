@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Upload, File } from 'lucide-react';
+import { File, Upload } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
@@ -55,7 +55,7 @@ export function FileDrop({ onFileSelect, accept = '.pdf,.jpg,.jpeg,.png' }: File
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   };
 
   return (
@@ -70,7 +70,7 @@ export function FileDrop({ onFileSelect, accept = '.pdf,.jpg,.jpeg,.png' }: File
       onDragOver={handleDrag}
       onDrop={handleDrop}
     >
-      <label className="flex flex-col items-center justify-center px-8 py-16 cursor-pointer">
+      <label className="flex cursor-pointer flex-col items-center justify-center px-5 py-10 sm:px-8 sm:py-16">
         <input
           type="file"
           className="hidden"
@@ -78,28 +78,24 @@ export function FileDrop({ onFileSelect, accept = '.pdf,.jpg,.jpeg,.png' }: File
           onChange={handleFileInput}
           aria-label="Upload clinical document"
         />
-        
+
         {selectedFile ? (
           <div className="flex flex-col items-center gap-3 text-center">
-            <File className="h-12 w-12 text-primary" />
+            <File className="h-10 w-10 text-primary sm:h-12 sm:w-12" />
             <div>
-              <p className="font-semibold text-foreground">{selectedFile.name}</p>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="break-all font-semibold text-foreground">{selectedFile.name}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
                 {selectedFile.type || 'Unknown type'} · {formatFileSize(selectedFile.size)}
               </p>
             </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 text-center">
-            <Upload className="h-12 w-12 text-muted-foreground" />
+            <Upload className="h-10 w-10 text-muted-foreground sm:h-12 sm:w-12" />
             <div>
               <p className="font-semibold text-foreground">Drop a PDF or image</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Or click to browse files
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Supports PDF, JPG, PNG
-              </p>
+              <p className="mt-1 text-sm text-muted-foreground">Or click to browse files</p>
+              <p className="mt-2 text-xs text-muted-foreground">Supports PDF, JPG, PNG</p>
             </div>
           </div>
         )}

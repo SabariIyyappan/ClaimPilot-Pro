@@ -10,11 +10,6 @@ export default function About() {
       description: 'Advanced machine learning models analyze clinical notes and suggest accurate ICD-10 and CPT codes with confidence scores.',
     },
     {
-      icon: Shield,
-      title: 'Blockchain Verification',
-      description: 'Every claim is recorded on the Polygon blockchain for immutable audit trails and enhanced security.',
-    },
-    {
       icon: Zap,
       title: 'Fast & Efficient',
       description: 'Process claims in minutes instead of hours. Our streamlined workflow reduces manual coding time by up to 70%.',
@@ -145,7 +140,7 @@ export default function About() {
                 <div>
                   <h3 className="font-semibold mb-2">Sign & Generate</h3>
                   <p className="text-muted-foreground">
-                    Certify the claim and generate a CMS-1500 form with blockchain verification for audit trails.
+                  Certify the claim and generate a CMS-1500 form for audit trails.
                   </p>
                 </div>
               </div>
@@ -182,7 +177,7 @@ export default function About() {
             <h3 className="font-semibold">Security & Compliance</h3>
             <p className="text-base leading-relaxed text-muted-foreground max-w-2xl mx-auto">
               This is a demonstration platform. For production use, ensure compliance with HIPAA regulations, 
-              medical coding standards (ICD-10, CPT), insurance industry requirements, and blockchain 
+              medical coding standards (ICD-10, CPT) and insurance industry requirements 
               compliance in your jurisdiction. Always consult with legal and compliance professionals before 
               processing real patient data.
             </p>

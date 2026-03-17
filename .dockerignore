@@ -16,6 +16,7 @@ env/
 
 # Data and artifacts
 data/
+backend/data/
 *.db
 *.sqlite
 
@@ -33,6 +34,13 @@ Thumbs.db
 # Build
 dist/
 build/
+
+# Frontend / infra not needed in backend image
+frontend/
+infra/
+
+# Local env files
+backend/.env
 
 # Logs
 *.log

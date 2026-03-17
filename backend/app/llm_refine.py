@@ -1,23 +1,26 @@
 import os
 import json
 from typing import List, Dict, Any, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
+
+from app.medical_fallback import suggest_codes
 
 try:
     # Use the official google-genai import style
     from google import genai  # type: ignore
+    from google.genai import types as genai_types  # type: ignore
 except Exception:
     genai = None  # type: ignore
+    genai_types = None  # type: ignore
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-exp")
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini").strip().lower()
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+MEDGEMMA_MODEL = os.environ.get("MEDGEMMA_MODEL", "google/medgemma-4b-it")
+MEDGEMMA_ENDPOINT_URL = os.environ.get("MEDGEMMA_ENDPOINT_URL", "").strip()
+MEDGEMMA_API_KEY = os.environ.get("MEDGEMMA_API_KEY", "").strip()
 
-
-def _dbg(msg: str) -> None:
-    if os.environ.get("LLM_DEBUG", "").lower() in ("1", "true", "yes"):
-        try:
-            print(f"[llm_refine] {msg}")
-        except Exception:
-            pass
 
 def _dbg(msg: str) -> None:
     if os.environ.get("LLM_DEBUG", "").lower() in ("1", "true", "yes"):
@@ -104,6 +107,24 @@ Return JSON array ONLY.
 """
 
 
+_CODE_SUGGESTION_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "The billing or diagnosis code."},
+            "system": {"type": "string", "enum": ["ICD-10", "CPT"], "description": "The coding system."},
+            "description": {"type": "string", "description": "Short code description."},
+            "score": {"type": "number", "description": "Confidence score between 0 and 1."},
+            "reason": {"type": "string", "description": "One-sentence clinical justification."},
+        },
+        "required": ["code", "system", "description", "score", "reason"],
+        "propertyOrdering": ["code", "system", "description", "score", "reason"],
+        "additionalProperties": False,
+    },
+}
+
+
 def _fallback_refine(
     entities: List[Dict[str, Any]],
     candidates: List[Dict[str, Any]],
@@ -178,7 +199,15 @@ def _call_gemini(prompt: str) -> Optional[str]:
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
         _dbg(f"call: model={GEMINI_MODEL} prompt_chars={len(prompt)} (models.generate_content)")
-        resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        config = None
+        if genai_types is not None:
+            config = genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=_CODE_SUGGESTION_SCHEMA,
+                temperature=0.1,
+                thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+            )
+        resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt, config=config)
         if getattr(resp, "text", None):
             txt = resp.text
             _dbg(f"call: got text len={len(txt)} head={txt[:120]!r}")
@@ -187,6 +216,57 @@ def _call_gemini(prompt: str) -> Optional[str]:
     except Exception as e:
         _dbg(f"call: exception: {e}")
         return None
+
+
+def _call_medgemma(prompt: str) -> Optional[str]:
+    if not MEDGEMMA_ENDPOINT_URL:
+        _dbg("medgemma endpoint missing; set MEDGEMMA_ENDPOINT_URL")
+        return None
+    payload = {
+        "model": MEDGEMMA_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        "temperature": 0.1,
+    }
+    req = urllib_request.Request(
+        MEDGEMMA_ENDPOINT_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            **({"Authorization": f"Bearer {MEDGEMMA_API_KEY}"} if MEDGEMMA_API_KEY else {}),
+        },
+        method="POST",
+    )
+    try:
+        _dbg(f"call: provider=medgemma model={MEDGEMMA_MODEL} prompt_chars={len(prompt)}")
+        with urllib_request.urlopen(req, timeout=60) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        choices = body.get("choices") or []
+        if choices and isinstance(choices, list):
+            msg = choices[0].get("message", {})
+            content = msg.get("content")
+            if isinstance(content, str):
+                return content
+        if isinstance(body.get("generated_text"), str):
+            return str(body["generated_text"])
+        return None
+    except urllib_error.HTTPError as e:
+        _dbg(f"call: medgemma http_error={e.code}")
+        return None
+    except Exception as e:
+        _dbg(f"call: medgemma exception={e}")
+        return None
+
+
+def _call_model(prompt: str) -> Optional[str]:
+    provider = LLM_PROVIDER
+    if provider == "medgemma":
+        return _call_medgemma(prompt)
+    return _call_gemini(prompt)
 
 
 def refine(
@@ -217,7 +297,7 @@ def refine(
         )
 
     _dbg(f"refine: top_k={top_k} ents={len(entities)} cands={len(candidates)}")
-    text: Optional[str] = _call_gemini(prompt)
+    text: Optional[str] = _call_model(prompt)
     if text:
         parsed = _extract_json(text) or []
         _dbg(f"refine: parsed={len(parsed)}")
@@ -235,7 +315,10 @@ def refine(
         if out:
             return out[:limit]
 
-    # If Gemini unavailable or parsing failed, trivial non-clinical fallback
+    # If the configured model is unavailable or parsing failed, use the local fallback.
+    fallback = suggest_codes(clinical_text, top_k=limit)
+    if fallback:
+        return fallback
     return _fallback_refine(entities, candidates, clinical_text, top_k=limit)
 
 
@@ -262,7 +345,7 @@ def generate_codes_from_text(
         )
 
     _dbg(f"direct: top_k={top_k} ents={len(entities)} text_chars={len(clinical_text or '')}")
-    text = _call_gemini(prompt) or "[]"
+    text = _call_model(prompt) or "[]"
     parsed = _extract_json(text) or []
     if not parsed:
         # Second attempt: stricter instruction and explicit minimum count
@@ -272,12 +355,12 @@ def generate_codes_from_text(
             + f"\n\nIMPORTANT: Return a JSON array ONLY with at least {min_items} items when applicable. "
               "No comments, no code fences."
         )
-        text2 = _call_gemini(strict_prompt) or "[]"
+        text2 = _call_model(strict_prompt) or "[]"
         parsed = _extract_json(text2) or []
     _dbg(f"direct: parsed={len(parsed)}")
 
     if not parsed:
-        return []
+        return suggest_codes(clinical_text, top_k=max(1, top_k))
 
     out: List[Dict[str, Any]] = []
     for idx, it in enumerate(parsed[: max(1, top_k)]):

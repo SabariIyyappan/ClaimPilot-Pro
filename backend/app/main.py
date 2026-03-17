@@ -4,19 +4,30 @@ from pathlib import Path
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.schemas import UploadRequest, SuggestRequest, SuggestResponse, ClaimRequest, ClaimResponse, Entity, CodeSuggestion, CMS1500Request
+from app.schemas import (
+    UploadRequest,
+    SuggestRequest,
+    SuggestResponse,
+    ClaimRequest,
+    ClaimResponse,
+    Entity,
+    CodeSuggestion,
+    CMS1500Request,
+    PresignUploadRequest,
+    PresignUploadResponse,
+    ProcessUploadedFileRequest,
+)
 from app.ocr import extract_text_from_image_bytes, extract_text_from_pdf_bytes
 from app.ner import extract_entities
-from app.embeddings import embed_texts
-from app.retrieval import FaissIndexWrapper
 from app.pdfgen import generate_claim_pdf
 from app.cms1500 import parse_header_info, split_codes, generate_cms1500_pdf
-from app.blockchain import compute_claim_hash, create_mock_tx
+from app.utils_hash import compute_claim_hash
 import os
 import uuid
 from typing import List, Dict, Tuple, Optional
 import json
 import time
+from app.storage import create_presigned_upload, download_object_bytes, get_upload_bucket, StorageConfigError
 
 # Ensure we load env from backend/.env even when running uvicorn from repo root
 _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
@@ -54,11 +65,14 @@ _cors_origins = os.environ.get(
     "http://localhost:5173,http://127.0.0.1:5173"
 )
 origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+origin_regex = os.environ.get(
+    "CORS_ALLOW_ORIGIN_REGEX",
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$|https://([a-z0-9-]+\.)*vercel\.app$",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    # Allow any localhost port for smoother local dev
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,6 +113,17 @@ async def upload(
         # prefer provided text if present
         extracted = text
 
+    return _process_extracted_text(extracted, clinical_only=clinical_only, auto_suggest=auto_suggest)
+
+
+def _extract_from_bytes(filename: str, content: bytes) -> str:
+    lower_name = filename.lower()
+    if lower_name.endswith(".pdf"):
+        return extract_text_from_pdf_bytes(content)
+    return extract_text_from_image_bytes(content)
+
+
+def _process_extracted_text(extracted: str, clinical_only: bool = True, auto_suggest: bool = False):
     # If requested (default True), keep only the Clinical Note section
     if clinical_only:
         try:
@@ -117,23 +142,67 @@ async def upload(
         except Exception:
             sugg = []
         return {"text": extracted, "entities": ents, "suggestions": sugg}
-
     return {"text": extracted, "entities": ents}
+
+
+@app.post("/storage/presign-upload", response_model=PresignUploadResponse)
+def presign_upload(req: PresignUploadRequest):
+    expires_in = int(os.environ.get("S3_PRESIGN_EXPIRES_SECONDS", "900"))
+    try:
+        upload_url, key, headers = create_presigned_upload(
+            filename=req.filename,
+            content_type=req.content_type,
+            expires_in=expires_in,
+        )
+        return PresignUploadResponse(
+            upload_url=upload_url,
+            key=key,
+            bucket=get_upload_bucket(),
+            expires_in=expires_in,
+            headers=headers,
+        )
+    except StorageConfigError as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+    except Exception:
+        return JSONResponse(status_code=500, content={"detail": "Failed to create upload URL"})
+
+
+@app.post("/storage/process-upload")
+def process_uploaded_file(req: ProcessUploadedFileRequest):
+    try:
+        content = download_object_bytes(req.key)
+        extracted = _extract_from_bytes(req.filename, content)
+        return _process_extracted_text(extracted, clinical_only=req.clinical_only, auto_suggest=req.auto_suggest)
+    except StorageConfigError as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Unable to process uploaded file"})
 
 
 @app.get("/config")
 def config():
     mode = os.environ.get("SUGGEST_MODE", "llm").lower()
-    gem_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+    llm_provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
+    llm_model = (
+        os.environ.get("MEDGEMMA_MODEL", "google/medgemma-4b-it")
+        if llm_provider == "medgemma"
+        else os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+    )
     # Basic check for FAISS files
     faiss_present = all(os.path.exists(p) for p in [
         os.path.join("data", "faiss.index"),
         os.path.join("data", "meta.npy"),
     ])
+    llm_ready = bool(
+        os.environ.get("MEDGEMMA_ENDPOINT_URL")
+        if llm_provider == "medgemma"
+        else os.environ.get("GEMINI_API_KEY")
+    )
     return {
         "mode": mode,
-        "llm_provider": "gemini",
-        "llm_model": gem_model,
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "llm_ready": llm_ready,
         "retrieval_enabled": bool(faiss_present),
         "version": "0.1",
     }
@@ -182,6 +251,9 @@ async def suggest(
     # 2) Optional retrieval (no hardcoding/heuristics). If FAISS files are present
     # and SUGGEST_MODE != 'llm', do a simple text-based retrieval to supply
     # candidates to the LLM for refinement.
+    from app.embeddings import embed_texts
+    from app.retrieval import FaissIndexWrapper
+
     idx = FaissIndexWrapper(
         index_path="data/faiss.index",
         desc_path="data/descriptions.npy",
@@ -277,15 +349,12 @@ def generate_claim(req: ClaimRequest):
         "source": "local-skeleton",
     }
 
-    # Compute deterministic hash and create a mock blockchain tx
+    # Compute deterministic hash for local audit (no blockchain)
     try:
         h = compute_claim_hash({k: v for k, v in payload.items() if k != 'approved'})
-        tx = create_mock_tx(h)
     except Exception:
         h = ""
-        tx = {}
-
-    metadata = {"hash": h, "tx": tx, "source": payload["source"]}
+    metadata = {"hash": h, "source": payload["source"]}
 
     # Append to a local audit log (no PHI stored)
     try:

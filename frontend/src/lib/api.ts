@@ -1,6 +1,8 @@
 import axios from 'axios';
 import type {
   UploadResponse,
+  PresignUploadRequest,
+  PresignUploadResponse,
   SuggestRequest,
   SuggestResponse,
   GenerateClaimRequest,
@@ -10,6 +12,7 @@ import type {
 } from './types';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const ENABLE_S3_DIRECT_UPLOAD = String(import.meta.env.VITE_ENABLE_S3_DIRECT_UPLOAD || '').toLowerCase() === 'true';
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -29,6 +32,36 @@ export const uploadFile = async (file: File, clinicalOnly = true, autoSuggest = 
   if (autoSuggest) formData.append('auto_suggest', 'true');
   
   const { data } = await api.post<UploadResponse>('/upload', formData);
+  return data;
+};
+
+export const createPresignedUpload = async (
+  request: PresignUploadRequest
+): Promise<PresignUploadResponse> => {
+  const { data } = await api.post<PresignUploadResponse>('/storage/presign-upload', request);
+  return data;
+};
+
+export const putFileToPresignedUrl = async (
+  uploadUrl: string,
+  file: File,
+  headers: Record<string, string>
+): Promise<void> => {
+  await axios.put(uploadUrl, file, { headers });
+};
+
+export const processUploadedFile = async (
+  key: string,
+  filename: string,
+  clinicalOnly = true,
+  autoSuggest = false
+): Promise<UploadResponse> => {
+  const { data } = await api.post<UploadResponse>('/storage/process-upload', {
+    key,
+    filename,
+    clinical_only: clinicalOnly,
+    auto_suggest: autoSuggest,
+  });
   return data;
 };
 

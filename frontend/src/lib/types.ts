@@ -19,6 +19,19 @@ export interface UploadResponse {
   suggestions?: CodeSuggestion[];
 }
 
+export interface PresignUploadRequest {
+  filename: string;
+  content_type: string;
+}
+
+export interface PresignUploadResponse {
+  upload_url: string;
+  key: string;
+  bucket: string;
+  expires_in: number;
+  headers: Record<string, string>;
+}
+
 export interface SuggestRequest {
   text: string;
   top_k?: number;

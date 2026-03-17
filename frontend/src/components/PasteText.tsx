@@ -32,7 +32,7 @@ export function PasteText({
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
-        className="min-h-[300px] font-mono text-base resize-y"
+        className="min-h-[220px] resize-y font-mono text-sm sm:min-h-[300px] sm:text-base"
         aria-label="Clinical note text input"
       />
     </div>

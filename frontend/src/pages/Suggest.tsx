@@ -97,6 +97,19 @@ export default function Suggest() {
           />
         )}
 
+        {!suggestMutation.isPending && suggestions.length === 0 && (
+          <Card className="p-8 border-destructive/30 bg-destructive/5">
+            <div className="space-y-2">
+              <h3 className="font-semibold">No suggestions were returned</h3>
+              <p className="text-sm text-muted-foreground">
+                Text extraction worked, but the configured model did not return usable codes. The backend now falls
+                back to local code matching, so if this still happens, check the deployment env and try the request
+                again.
+              </p>
+            </div>
+          </Card>
+        )}
+
         {/* Footer Actions */}
         {!suggestMutation.isPending && suggestions.length > 0 && (
           <div className="sticky bottom-0 bg-background border-t py-4 animate-fade-in">
